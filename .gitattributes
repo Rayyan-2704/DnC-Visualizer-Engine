@@ -1,0 +1,5 @@
+# Keep data files byte-exact: the hashes in src/generator/seeds.txt depend on LF line endings.
+data/** -text
+src/generator/seeds.txt -text
+# Windows batch files must keep CRLF
+*.bat text eol=crlf

@@ -1,0 +1,26 @@
+# DAA project - recorded seeds and fingerprints of the 20 input files.
+# Regenerate everything with:  bin\gen.exe all      Check reproducibility with:  bin\gen.exe verify
+# RNG: std::mt19937_64(seed) with our own bits-to-range mapping (src/generator/rng.h).
+# size = number of points (cp) or digits per number (im; im05 = digits of the long number).
+# hash = FNV-1a 64-bit of the exact file bytes (LF line endings).
+# id    seed   size      bytes      hash              description
+cp01  1001   1000      27766      0941f8ad439e0e31  uniform random reals in [0,1e6]
+cp02  1002   10000     277783     10057562a5571db7  uniform random reals in [0,1e6]
+cp03  1003   100000    2777941    8e5d1ab682cc7b6e  uniform random reals in [0,1e6]
+cp04  1004   1000000   27777826   1faedaa7c5f72bd0  uniform random reals in [0,1e6]
+cp05  1005   1000000   27952225   2edc185d1f8eaa39  clustered around 10 random centers
+cp06  1006   1000000   7782803    701d44ef059ef187  integer coords in [0,1000], many duplicate points (distance 0)
+cp07  1007   100000    2788860    9edae5b3ddb0fa84  all points on one vertical line
+cp08  1008   100000    1375320    8d501193ac89dab9  equally spaced grid (shuffled), many tied closest pairs
+cp09  1009   1000000   27777624   2acc499083ef9788  closest pair straddles the middle dividing line
+cp10  1010   101       2212       13b0345205d8a6a9  small file for step-by-step trace (coords in [0,1000])
+im01  2001   1000      2002       d4f940e3b9ce8559  two random numbers, n digits each
+im02  2002   10000     20002      516a79778a0031bc  two random numbers, n digits each
+im03  2003   100000    200002     34869e1305eeb507  two random numbers, n digits each
+im04  2004   1000000   2000002    76af6cc002b2e033  two random numbers, n digits each
+im05  2005   1000000   1000012    7263aa720582611f  unbalanced: n digits x 10 digits
+im06  2006   100000    200002     9da39e7ab0879287  first number is all 9s, second random, n digits each
+im07  2007   99999     200000     e54dff442ef251e9  odd length, about 90% zero digits, n digits each
+im08  2008   1000000   2000002    c6e85cea2ee7e613  both numbers are 10^(n-1) (powers of 10)
+im09  2009   1000000   1000003    1e31441832232077  first number is 0, second has n digits
+im10  2010   101       204        8de71a82e8de51fa  small file for step-by-step trace, n digits each
