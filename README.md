@@ -4,7 +4,17 @@ Desktop visualization workbench and high-performance engine for two classic divi
 1. **Closest Pair of 2D Points** ($O(n \log n)$ Kleinberg Section 5.4 algorithm)
 2. **Karatsuba Integer Multiplication** (sub-quadratic divide-and-conquer for big integers)
 
-Built for the **Design and Analysis of Algorithms (DAA)** course at FAST NUCES.
+Built for the **Design and Analysis of Algorithms (DAA)** course at FAST-NUCES.
+
+---
+
+# Group Members
+
+| Member | ID |
+|---|---|
+| [Rayyan Aamir](https://github.com/Rayyan-2704) | 24K-0687 |
+| [Muhammad Ahmed Shah Rashdi](https://github.com/AhmedCodes03) | 24K-0709 |
+| [Muhammad Usaid Khan](https://github.com/MuhammadUsaidKhan) | 24K-0832 |
 
 ---
 
