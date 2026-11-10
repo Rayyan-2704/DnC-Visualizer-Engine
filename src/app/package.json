@@ -1,0 +1,25 @@
+{
+  "name": "dnc-visualizer",
+  "version": "1.0.0",
+  "description": "Divide & Conquer Visualizer - Closest Pair + Karatsuba",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "start": "electron-vite preview"
+  },
+  "keywords": [],
+  "author": "DAA Group",
+  "license": "MIT",
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "electron": "^31.0.0",
+    "electron-vite": "^2.3.0",
+    "vite": "^5.3.1"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  }
+}

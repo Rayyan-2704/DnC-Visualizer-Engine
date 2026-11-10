@@ -1,0 +1,47 @@
+.sc-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  background: #0d0d1a;
+  cursor: grab;
+}
+.sc-container:active { cursor: grabbing; }
+
+.sc-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sc-toolbar {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(19, 19, 31, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+
+.sc-info {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text2);
+  margin-right: 4px;
+}
+
+.sc-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+}
+.sc-btn:hover { border-color: var(--accent); color: var(--accent); }
+

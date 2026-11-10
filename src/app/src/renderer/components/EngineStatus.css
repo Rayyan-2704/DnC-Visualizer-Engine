@@ -1,0 +1,12 @@
+.engine-status {
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-weight: 500;
+}
+.engine-status.checking { background: var(--bg3); color: var(--text2); }
+.engine-status.ok       { background: rgba(67,233,123,0.1); color: var(--accent3); border: 1px solid rgba(67,233,123,0.3); }
+.engine-status.js       { background: rgba(108,99,255,0.1); color: var(--accent); border: 1px solid rgba(108,99,255,0.3); }
+.engine-status.missing  { background: rgba(255,101,132,0.1); color: var(--accent2); border: 1px solid rgba(255,101,132,0.3); }
+.es-hint { font-size: 11px; margin-top: 4px; opacity: 0.8; }
+.es-hint code { font-family: monospace; background: var(--bg2); padding: 1px 4px; border-radius: 3px; }
