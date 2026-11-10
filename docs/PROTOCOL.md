@@ -20,6 +20,7 @@ engine karatsuba    <input-file> [--trace] [--out <file>]
 | `<input-file>` | Path to an input file (formats in section 7). |
 | `--trace` | Emit `step` events. Only allowed for small inputs (section 6). |
 | `--out <file>` | Karatsuba only: where to write the full product. Default: `out/<input-stem>.product.txt` (the `out/` folder is created if missing). |
+| `--cutoff <limbs>` | Karatsuba only: below this many limbs (9 digits each) in the shorter number, use grade-school multiplication. Default 128 (4 in `--trace` mode). Values below 4 are raised to 4. Useful for tuning experiments. |
 
 **Streams**
 - **stdout:** protocol messages only, one JSON object per line (JSON Lines). Nothing else, ever.
@@ -76,6 +77,7 @@ Common fields:
 |---|---|---|
 | `algorithm` | string | `"closest-pair"` or `"karatsuba"` |
 | `file` | string | Input file path as given on the command line |
+| `traced` | bool | `true` if the run used `--trace`. Then `timeMs` also includes the cost of printing events, so it is not a benchmark figure. |
 | `timeMs` | number | Wall-clock milliseconds for the **algorithm only** (not file reading, not printing), measured with `std::chrono::steady_clock`, decimals allowed |
 | `answer` | object | Algorithm-specific (below) |
 
@@ -83,7 +85,7 @@ Common fields:
 
 ```json
 {"type":"result","algorithm":"closest-pair","file":"data/large/cp04.txt","n":1000000,
- "timeMs":842.7,
+ "timeMs":842.7,"traced":false,
  "answer":{
    "p1":[10.5,20.1],"p2":[10.6,20.1],
    "p1Index":48213,"p2Index":771902,
@@ -104,7 +106,7 @@ Common fields:
 
 ```json
 {"type":"result","algorithm":"karatsuba","file":"data/large/im04.txt",
- "timeMs":5120.4,
+ "timeMs":5120.4,"traced":false,
  "answer":{
    "digitsA":1000000,"digitsB":1000000,
    "productDigits":2000000,
@@ -158,6 +160,8 @@ Kind-specific fields are added alongside these.
 | `update` | A new best pair is adopted | `best`: `{a, b, d2}` |
 | `merge` | This call finishes and returns upward | `lo`, `hi`, `best`: `{a, b, d2}` |
 
+The base case is fixed: a range of 2 or 3 points is solved by brute force (`base`); a range of 4 or more points is divided. `delta` is the square root of the best squared distance found so far. `compare` events appear only for pairs the real inner loop looks at (strip points that are closer than `delta` in y), in the same order the loop visits them; an `improved` compare is always followed immediately by its `update`.
+
 Event order inside one `divide` call: `divide`, (left child's events), (right child's events), `strip`, zero or more `compare`/`update`, `merge`. A base-case call emits `base` then nothing else (it is its own `merge`). The root's `merge` holds the final answer.
 
 Example:
@@ -170,7 +174,9 @@ Example:
 
 ## 5. Karatsuba trace events
 
-**Numbers in steps are decimal strings.** Internally the engine uses limbs of base `limbBase` (10^9 or 10^4, decided in Phase 3), so the splits happen on limb boundaries. The `init` step reports which one so the UI can explain it.
+**Numbers in steps are decimal strings.** Internally the engine always uses limbs of base `limbBase` = 10^9 (9 digits per limb), so splits happen on 9-digit boundaries. `init` reports `limbBase` and `cutoffLimbs`. In `--trace` mode the cutoff is 4 limbs (36 digits), so even the 101-digit file recurses a couple of levels.
+
+**x is always the longer operand.** In every `split` and `base`, `x` has at least as many limbs as `y` (the engine swaps the two if needed), so `x` and `y` of a child call can appear in the opposite order to the parent's `x0`/`y0`. Compare them as a pair, not by position.
 
 **Notation.** For a call multiplying `x` and `y`, with split point `m` limbs:
 `x = x1*B^m + x0`, `y = y1*B^m + y0`, where `B = limbBase`.
@@ -182,15 +188,17 @@ Each of `z0`, `z1`, `z2` is computed by a child call. The child's first event ca
 | kind | When | Extra fields |
 |---|---|---|
 | `init` | Once, first step (`seq` 0, `id` 0) | `a`, `b` (decimal strings), `limbBase`, `cutoffLimbs` (below this size schoolbook is used) |
-| `split` | A call is big enough to recurse | `role`, `x`, `y` (decimal strings), `m` (split point in limbs), `mDigits` (m times digits per limb), `x1`, `x0`, `y1`, `y0` (decimal strings) |
-| `base` | A call is small, solved by schoolbook | `role`, `x`, `y`, `product` (decimal strings) |
-| `combine` | All three children are done; the call assembles its answer | `z0`, `z1`, `z2` (decimal strings), `mid` (= z1 - z2 - z0), `product` |
+| `split` | A call is big enough to recurse (the shorter number has at least `cutoffLimbs` limbs) | `role`, `x`, `y` (decimal strings), `m` (split point in limbs, always `ceil(limbs(x)/2)`), `mDigits` (`9*m`), `x1`, `x0`, `y1`, `y0` (decimal strings), `unbalanced` (bool, see below) |
+| `base` | A call is small (the shorter number has fewer than `cutoffLimbs` limbs), or one operand is zero; solved by schoolbook | `role`, `x`, `y`, `product` (decimal strings). A zero operand shows as `"0"` with product `"0"` |
+| `combine` | All children are done; the call assembles its answer | balanced: `unbalanced:false`, `z0`, `z1`, `z2`, `mid` (= z1 - z2 - z0), `product`. Unbalanced: `unbalanced:true`, `pieces` (array of 2 decimal strings), `product` |
 
 Event order inside one recursing call: `split`, (child z0 events), (child z1 events), (child z2 events), `combine`. A base call emits only `base`.
 
 The root's `combine` or `base` holds the final product.
 
-**Unbalanced inputs.** If one operand is much shorter than the other (im05: 10 digits x 1,000,000), the engine does not pad. In trace mode (small inputs only) it emits a normal `split` whose `msg` explains that the longer number is cut into pieces matching the shorter one's size; each piece multiplication is a child call with `role` `"piece0"`, `"piece1"`, ... instead of `z0/z1/z2`, followed by a `combine` that adds the shifted pieces. **[OPEN]** Confirm this when we write the engine; only matters if a trace file is ever unbalanced.
+**Unbalanced calls (no padding).** If the shorter number fits inside the low half (`limbs(y) <= m`), Karatsuba's trick saves nothing, so the engine does NOT pad `y` up to `x`'s length. Instead the `split` event has `unbalanced:true`, `y1` = `"0"`, `y0` = `y`, and the call has exactly two children with roles `piece0` (= x0 * y) and `piece1` (= x1 * y), in that order. Its `combine` has `unbalanced:true` and `pieces` = the two products, with `product = piece0 + piece1 * 10^(9m)`. This case appears whenever one number is much shorter than the other (in the 101-digit trace file it can still appear deeper in the tree, because `x0 + x1` and `y0 + y1` may differ in length).
+
+Child order inside a balanced call is `z0`, `z1`, `z2`, each as one complete sub-tree of events.
 
 ---
 
@@ -252,7 +260,7 @@ Output (one object per line):
 {"type":"hello","protocol":1,"engine":"daa-engine","version":"0.1.0"}
 {"type":"step","seq":0,"id":0,"parentId":null,"depth":0,"kind":"init","points":[[0,0],[10,10],[11,10]],"sortedByX":[0,1,2],"msg":"Loaded 3 points, sorted by x"}
 {"type":"step","seq":1,"id":0,"parentId":null,"depth":0,"kind":"base","lo":0,"hi":3,"best":{"a":1,"b":2,"d2":1},"msg":"3 points: solved by brute force"}
-{"type":"result","algorithm":"closest-pair","file":"cp_tiny.txt","n":3,"timeMs":0.004,"answer":{"p1":[10,10],"p2":[11,10],"p1Index":1,"p2Index":2,"distance":1,"distanceSquared":1}}
+{"type":"result","algorithm":"closest-pair","file":"cp_tiny.txt","n":3,"timeMs":0.004,"traced":true,"answer":{"p1":[10,10],"p2":[11,10],"p1Index":1,"p2Index":2,"distance":1,"distanceSquared":1}}
 ```
 
 ## 9. Full example: tiny Karatsuba run (`--trace`)
@@ -261,26 +269,29 @@ Input: `12` and `34`, with `limbBase = 10`, `cutoffLimbs = 1` (illustration only
 ```json
 {"type":"hello","protocol":1,"engine":"daa-engine","version":"0.1.0"}
 {"type":"step","seq":0,"id":0,"parentId":null,"depth":0,"kind":"init","a":"12","b":"34","limbBase":10,"cutoffLimbs":1,"msg":"Multiplying 12 x 34"}
-{"type":"step","seq":1,"id":0,"parentId":null,"depth":0,"kind":"split","role":null,"x":"12","y":"34","m":1,"mDigits":1,"x1":"1","x0":"2","y1":"3","y0":"4","msg":"Split at 1 digit: 12 = 1*10 + 2, 34 = 3*10 + 4"}
+{"type":"step","seq":1,"id":0,"parentId":null,"depth":0,"kind":"split","role":null,"x":"12","y":"34","m":1,"mDigits":1,"x1":"1","x0":"2","y1":"3","y0":"4","unbalanced":false,"msg":"Split at 1 digit: 12 = 1*10 + 2, 34 = 3*10 + 4"}
 {"type":"step","seq":2,"id":1,"parentId":0,"depth":1,"kind":"base","role":"z0","x":"2","y":"4","product":"8","msg":"z0 = 2 x 4 = 8"}
 {"type":"step","seq":3,"id":2,"parentId":0,"depth":1,"kind":"base","role":"z1","x":"3","y":"7","product":"21","msg":"z1 = (2+1) x (4+3) = 21"}
 {"type":"step","seq":4,"id":3,"parentId":0,"depth":1,"kind":"base","role":"z2","x":"1","y":"3","product":"3","msg":"z2 = 1 x 3 = 3"}
-{"type":"step","seq":5,"id":0,"parentId":null,"depth":0,"kind":"combine","z0":"8","z1":"21","z2":"3","mid":"10","product":"408","msg":"3*100 + 10*10 + 8 = 408"}
-{"type":"result","algorithm":"karatsuba","file":"tiny.txt","timeMs":0.002,"answer":{"digitsA":2,"digitsB":2,"productDigits":3,"productHead":"408","productTail":"408","outputFile":"out/tiny.product.txt","product":"408"}}
+{"type":"step","seq":5,"id":0,"parentId":null,"depth":0,"kind":"combine","unbalanced":false,"z0":"8","z1":"21","z2":"3","mid":"10","product":"408","msg":"3*100 + 10*10 + 8 = 408"}
+{"type":"result","algorithm":"karatsuba","file":"tiny.txt","timeMs":0.002,"traced":true,"answer":{"digitsA":2,"digitsB":2,"productDigits":3,"productHead":"408","productTail":"408","outputFile":"out/tiny.product.txt","product":"408"}}
 ```
 
 ---
 
 ## 10. Changes from the earlier outline in `context.md`
 
+(Phase 4 additions: `traced` in results; `unbalanced`, `pieces` and `piece0`/`piece1` for Karatsuba; `--cutoff`; the zero-operand `base`; `x` is always the longer operand.)
+
 - Added an `init` step kind to both algorithms (the UI needs the full point list / operands once).
 - Karatsuba: `done` was merged into `base` and `combine` (both carry `product`), so fewer events and no duplicate information.
 - Added `role`, `seq`, and `msg` fields to make the player and recursion tree simpler to build.
 - Added `p1Index`/`p2Index`, `distanceSquared`, and `outputFile` to results.
 
-## 11. Open items
+## 11. Decisions that were open (now closed in Phase 3-4)
 
-- **[OPEN]** Base-case size for closest pair is fixed at 3 here; confirm when writing the engine.
-- **[OPEN]** `limbBase` 10^9 vs 10^4 (10^4 gives a deeper, more visual recursion tree on 101 digits; 10^9 is faster on 10^6 digits). Option: engine uses 10^9 normally and 10^4 only under `--trace`.
-- **[OPEN]** Unbalanced-operand trace shape (section 5, last paragraph).
-- **[OPEN]** Optional later: a `progress` message for long runs, so the UI can show a spinner with a percentage.
+- Closest pair base-case size is 3 points (2 or 3 points: brute force).
+- Karatsuba limb base is 10^9 everywhere, including `--trace` (trace cutoff: 4 limbs).
+- Unbalanced operands use the `piece0`/`piece1` shape described in section 5.
+
+Still open: an optional `progress` message for long runs, so the UI could show a spinner with a percentage.

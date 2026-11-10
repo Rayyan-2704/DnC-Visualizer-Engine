@@ -1,7 +1,7 @@
 @echo off
 setlocal enabledelayedexpansion
-REM Place in: daa-project\src\engine\
-REM Builds daa-project\bin\engine.exe from every .cpp in this folder.
+REM Place in: DnC-Visualizer-Engine\src\engine\
+REM Builds DnC-Visualizer-Engine\bin\engine.exe from every .cpp in this folder.
 cd /d "%~dp0"
 if not exist ..\..\bin mkdir ..\..\bin
 
