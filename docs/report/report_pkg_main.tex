@@ -1,0 +1,203 @@
+\documentclass[10pt,twocolumn]{article}
+
+\usepackage[utf8]{inputenc}
+
+\usepackage[margin=0.62in,top=0.60in,bottom=0.62in]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric,fit,backgrounds}
+\usepackage{hyperref}
+\usepackage{cite}
+\usepackage{enumitem}
+\usepackage{caption}
+
+\captionsetup{font=small,labelfont=bf,skip=3pt}
+\setlength{\columnsep}{15pt}
+\setlength{\parskip}{1.5pt}
+\setlength{\parindent}{1em}
+\setlist{nosep,leftmargin=1.3em}
+
+% Compact section spacing to fit strictly 3 pages cleanly
+\makeatletter
+\renewcommand\section{\@startsection{section}{1}{\z@}%
+  {-1.5ex \@plus -0.4ex \@minus -0.2ex}%
+  {0.7ex \@plus 0.2ex}%
+  {\normalfont\normalsize\bfseries}}
+\renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+  {-1.1ex \@plus -0.3ex \@minus -0.1ex}%
+  {0.4ex \@plus 0.1ex}%
+  {\normalfont\small\bfseries}}
+\makeatother
+
+\title{\vspace{-2.2em}\Large\textbf{Design, Implementation, and Interactive Visualization of Divide-and-Conquer Algorithms at Million-Scale}\vspace{-0.4em}}
+\author{\small Rayyan Aamir (24K-0687) \quad Muhammad Ahmed Shah Rashdi (24K-0709) \quad Muhammad Usaid Khan (24K-0832)\\
+\small Department of Computer Science, FAST-NUCES, Karachi}
+\date{\vspace{-1.8em}}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Divide-and-conquer paradigms reduce asymptotic complexity by decomposing problem instances into independent subproblems and combining partial solutions efficiently. This report presents an end-to-end C++17 computational engine and cross-platform desktop workbench built for two foundational problems: finding the Closest Pair of Points in the Euclidean plane in $\Theta(n \log n)$ time and multiplying arbitrary-precision decimal integers via Karatsuba's sub-quadratic algorithm in $\Theta(n^{\log_2 3})$ time. To eliminate standard-library dependencies inside core solvers while maintaining million-scale throughput, we engineer custom base-$10^9$ limb arithmetic, hybrid merge-insertion sorting, and single-pass $y$-list merging. Reproducibility across platforms is guaranteed through a deterministic 64-bit Mersenne Twister generator paired with rejection sampling and 64-bit FNV-1a byte hashing across 20 benchmark datasets ($n \in [101, 10^6]$). Furthermore, a decoupled Electron--React visualizer communicates with the native engine over a streaming JSON Lines contract, dynamically adapting between step-by-step trace playback, interactive point-cloud snapshots, and memory-safe benchmark execution. Experimental evaluation confirms theoretical scaling laws, solving $10^6$ planar points in $275.33\text{ ms}$ and multiplying two $10^6$-digit integers in $510.66\text{ ms}$ with 100\% independent verification.
+\end{abstract}
+
+\section{Introduction}
+Asymptotic algorithm engineering bridges theoretical recurrence bounds with hardware-conscious implementation. Classical quadratic approaches---$\Theta(n^2)$ pairwise Euclidean distance checks for planar proximity and $\Theta(n^2)$ schoolbook digit multiplication---become computationally prohibitive once inputs reach $n = 10^6$ elements. Divide-and-conquer algorithms resolve this bottleneck by recursively partitioning inputs and exploiting structural invariants during the merge phase \cite{cormen2022introduction}.
+
+In the 2-D Closest Pair problem, Bentley and Shamos \cite{bentley1976divide} established that planar point sets admit an optimal $\Theta(n \log n)$ solution. Kleinberg and Tardos \cite{kleinberg2006algorithm} formulate a streamlined variant in which points are pre-sorted by $x$-coordinate, recursively split along a vertical bisector $x = x_{\text{mid}}$, and merged in bottom-up $y$-order so that candidate pairs within the central $2\delta$-wide vertical strip require at most seven subsequent comparisons per point. Similarly, Karatsuba and Ofman \cite{karatsuba1962multiplication} demonstrated that multiplying two $n$-digit integers requires only three recursive half-size multiplications rather than four, lowering the recurrence $T(n) = 3T(n/2) + \Theta(n)$ to $\Theta(n^{\log_2 3}) \approx \Theta(n^{1.585})$.
+
+However, translating these recurrences into production software introduces practical engineering challenges: avoiding hidden $O(n \log n)$ re-sorting inside recursive calls, amortizing recursion overhead via base-case cutoffs, guaranteeing bit-exact cross-compiler dataset reproducibility, and visualizing execution traces without freezing the user interface on million-digit outputs. Our system addresses all four challenges within a modular native-backend and desktop-frontend workbench.
+
+\section{Proposed System}
+\subsection{Decoupled Four-Module Architecture}
+Our architecture separates algorithmic execution from presentation into four standalone components (Figure~\ref{fig:arch}):
+\begin{enumerate}
+    \item \textbf{Deterministic Dataset Generator (\texttt{gen.exe}):} Synthesizes all 20 benchmark files from fixed 64-bit seeds, partitioning outputs smaller than $1\text{ MB}$ into \texttt{data/small/} and larger files into \texttt{data/large/}, while recording 64-bit FNV-1a checksums in \texttt{seeds.txt}.
+    \item \textbf{C++17 Divide-and-Conquer Engine (\texttt{engine.exe}):} Executes Closest Pair and Karatsuba without calling any built-in sorting or big-integer libraries, measuring pure solver latency via \texttt{std::chrono::steady\_clock}.
+    \item \textbf{Independent Verification Checker (\texttt{check.exe}):} Validates outputs using orthogonal algorithms---a $\Theta(n \log n)$ balanced-tree sweep-line (plus $\Theta(n^2)$ brute force for $n \le 20{,}000$) for Closest Pair, and modular congruence checks against four 31-bit primes $\{2^{31}-1, 2^{31}-19, 2^{31}-61, 2^{31}-69\}$ for Karatsuba.
+    \item \textbf{Desktop Visualization Workbench (Electron + React):} Spawns \texttt{engine.exe} as a child process over standard I/O pipes governed by a versioned JSON Lines contract (\texttt{PROTOCOL v1}).
+\end{enumerate}
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[
+    node distance=0.45cm and 0.55cm,
+    box/.style={rectangle, rounded corners=3pt, draw=black!75, thick, align=center, font=\scriptsize, minimum height=0.82cm, inner sep=4pt},
+    backend/.style={box, fill=blue!8},
+    ipc/.style={box, fill=amber!15, fill=orange!12, dashed},
+    frontend/.style={box, fill=teal!10},
+    arr/.style={-{Stealth[length=2.2mm]}, thick, draw=black!80}
+]
+% Offline layer
+\node[backend] (gen) {\textbf{Seeded Generator}\\(\texttt{gen.cpp} / \texttt{rng.h})\\20 Datasets + FNV-1a};
+\node[backend, right=0.55cm of gen] (data) {\textbf{Benchmark Corpus}\\\texttt{data/small/} ($<1\text{MB}$)\\\texttt{data/large/} ($10^6$ scale)};
+\node[backend, right=0.55cm of data] (chk) {\textbf{Oracle Checker}\\(\texttt{check.cpp})\\Sweep-line \& 4-Prime Mod};
+
+% Engine
+\node[backend, below=0.55cm of data, minimum width=4.6cm] (eng) {\textbf{C++17 Core Engine (\texttt{engine.exe})}\\Custom Merge-Sort + $\Theta(n \log n)$ Closest Pair $\mid$ Base-$10^9$ Karatsuba + Cutoff};
+
+% IPC
+\node[ipc, below=0.45cm of eng, minimum width=4.6cm] (proto) {\textbf{JSON Lines Stream Contract (\texttt{stdout}/\texttt{stdin} Pipe)}\\Messages: \texttt{hello} $\rightarrow$ \texttt{step}* (if $n \le 200$) $\rightarrow$ \texttt{result} / \texttt{error} (Head/Tail Guard)};
+
+% Frontend
+\node[frontend, below=0.50cm of proto, xshift=-1.75cm, minimum width=2.5cm] (mode1) {\textbf{Step-by-Step Mode}\\($n \le 200$)\\VCR Trace \& Call Tree};
+\node[frontend, below=0.50cm of proto, xshift=1.75cm, minimum width=2.5cm] (mode2) {\textbf{Snapshot \& Benchmark}\\($200 < n \le 10^6$)\\2-D Canvas \& Timing KPIs};
+
+\draw[arr] (gen) -- (data);
+\draw[arr] (data) -- (eng);
+\draw[arr] (eng) -- (chk);
+\draw[arr] (eng) -- (proto);
+\draw[arr] (proto.south) -| (mode1.north);
+\draw[arr] (proto.south) -| (mode2.north);
+\end{tikzpicture}%
+}
+\caption{System architecture illustrating offline dataset synthesis, native C++ solver execution, independent verification, and JSON Lines IPC streaming to adaptive React visualizers.}
+\label{fig:arch}
+\vspace{-0.6em}
+\end{figure}
+
+\subsection{Algorithmic Design \& Optimizations}
+\textbf{2-D Closest Pair (\texttt{closest\_pair.cpp}):} Input points $(x_i, y_i)$ are initially sorted by $(x, y, \text{id})$ via a custom hybrid merge-insertion sort (\texttt{mergesort.h}, switching to insertion sort for subarrays $n \le 16$). Within \texttt{solve()}, each recursive call splits the slice at $m = \lfloor n/2 \rfloor$ along $x_{\text{mid}} = p[m].x$, recurses on left and right halves to obtain $\delta = \min(\delta_L, \delta_R)$, and performs a single linear \texttt{mergeRuns()} pass to maintain $y$-sorted order bottom-up without re-sorting. Points satisfying $(p[i].x - x_{\text{mid}})^2 < \delta^2$ are collected into a scratch buffer \texttt{tmp}, and inner loop comparisons terminate immediately once $(y_j - y_i)^2 \ge \delta^2$, guaranteeing at most 7 inner iterations per strip element and $\Theta(n \log n)$ overall complexity \cite{kleinberg2006algorithm}.
+
+\textbf{Karatsuba Multiplication (\texttt{karatsuba.cpp}, \texttt{bignum.h}):} Arbitrary-precision integers are stored in little-endian base-$10^9$ limbs (\texttt{uint32\_t}), packing 9 decimal digits per word so pairwise limb products fit cleanly in 64-bit accumulators. When the shorter operand has $l_b < \text{cutoff}$ limbs (default $128$ limbs $\approx 1{,}152$ digits in benchmark mode; $4$ limbs in trace mode), execution switches to a cache-friendly schoolbook routine (\texttt{mulSchool}) that defers carry normalization every 16 rows. For highly unbalanced operands ($l_b \le m = \lceil l_a/2 \rceil$), the solver splits only the longer integer into $A_1 \cdot 10^{9m} + A_0$ to avoid zero-padding overhead. For balanced operands, it evaluates $z_0 = X_0 Y_0$, $z_1 = (X_0+X_1)(Y_0+Y_1)$, and $z_2 = X_1 Y_1$, combining $z_0 + (z_1 - z_0 - z_2)B^m + z_2 B^{2m}$ in linear limb passes.
+
+\textbf{Adaptive Desktop UI:} The Electron main process peeks at file headers to classify workloads into three modes: \emph{Step-by-Step} ($n \le 200$, streaming \texttt{divide}, \texttt{strip}, \texttt{compare}, and \texttt{combine} trace events into an SVG Closest-Pair canvas or interactive Karatsuba recursion tree), \emph{Snapshot} ($200 < n \le 10{,}000$, rendering interactive pan/zoom point clouds), and \emph{Benchmark} ($n > 10{,}000$, suppressing trace emission and transmitting only 50-digit head/tail previews while writing full million-digit products directly to disk to prevent DOM freezes).
+
+\section{Experimental Setup}
+Because standard C++ distributions (\texttt{std::uniform\_int\_distribution}, \texttt{std::shuffle}) vary across compiler implementations, our generator (\texttt{rng.h}) wraps the C++ standard \texttt{std::mt19937\_64} engine \cite{matsumoto1998mersenne} with unbiased Lemire/rejection sampling (\texttt{below(bound)} discarding values below $2^{64} \bmod \text{bound}$) and a custom Fisher--Yates shuffle. Planar coordinates are synthesized as 64-bit integer micro-units ($1\text{ unit} = 10^6\text{ micro-units}$) and formatted via exact integer division to ensure identical byte streams across Windows, Linux, and macOS.
+
+\begin{table}[t]
+\centering
+\caption{Specification of the 20 seeded benchmark datasets ($n$: points for \texttt{cp}, decimal digits for \texttt{im}).}
+\label{tab:datasets}
+\scriptsize
+\setlength{\tabcolsep}{3.2pt}
+\begin{tabularx}{\columnwidth}{@{}lrrX@{}}
+\toprule
+\textbf{ID} & \textbf{Seed} & \textbf{Size ($n$)} & \textbf{Distribution \& Generation Method} \\
+\midrule
+\texttt{cp01--04} & 1001--04 & $10^3$--$10^6$ & Uniform random reals in $[0, 10^6]^2$ \\
+\texttt{cp05} & 1005 & $1{,}000{,}000$ & 10 random centers + 4-uniform bell offset \\
+\texttt{cp06} & 1006 & $1{,}000{,}000$ & Uniform integers in $[0, 1000]^2$ (duplicates) \\
+\texttt{cp07} & 1007 & $100{,}000$ & Collinear points on vertical line $x = x_0$ \\
+\texttt{cp08} & 1008 & $100{,}000$ & Shuffled uniform square lattice (many ties) \\
+\texttt{cp09} & 1009 & $1{,}000{,}000$ & Random + planted pair ($\Delta x = 2\times 10^{-6}$) at mid \\
+\texttt{cp10} & 1010 & $101$ & Uniform reals in $[0, 1000]^2$ (step trace) \\
+\midrule
+\texttt{im01--04} & 2001--04 & $10^3$--$10^6$ & Two uniform random $n$-digit integers \\
+\texttt{im05} & 2005 & $10^6 \times 10$ & Unbalanced: $10^6$-digit $\times$ $10$-digit random \\
+\texttt{im06} & 2006 & $100{,}000$ & First all \texttt{9}s (max carry), second random \\
+\texttt{im07} & 2007 & $99{,}999$ & Odd length, sparse ($\approx 90\%$ zero digits) \\
+\texttt{im08} & 2008 & $1{,}000{,}000$ & Both operands exact powers of ten ($10^{n-1}$) \\
+\texttt{im09} & 2009 & $1 \times 10^6$ & Zero annihilation ($0 \times 10^6$-digit random) \\
+\texttt{im10} & 2010 & $101$ & Two uniform random $101$-digit integers \\
+\bottomrule
+\end{tabularx}
+\vspace{-0.7em}
+\end{table}
+
+Table~\ref{tab:datasets} details all 20 datasets covering uniform scaling, adversarial degeneracy (collinear points in \texttt{cp07}, dense duplicates in \texttt{cp06}, boundary-straddling pairs in \texttt{cp09}), and arithmetic edge cases (carry propagation in \texttt{im06}, extreme length asymmetry in \texttt{im05}, and zero/power-of-ten identities in \texttt{im08}--\texttt{im09}). All experiments were executed on an AMD Ryzen 5 8645HS processor ($15.3\text{ GB}$ RAM, Windows 11), compiled with \texttt{g++ 14.2.0 -O2}. Each dataset was timed across three untraceable runs, reporting median pure-algorithm execution time.
+
+\section{Results and Discussion}
+Table~\ref{tab:results} summarizes the benchmark execution times, computed solutions, and verification outcomes across all 20 datasets. Every output achieved a \texttt{PASS} verdict against \texttt{check.exe}.
+
+\begin{table}[t]
+\centering
+\caption{Median execution times ($3$ runs) and verified outputs across all 20 benchmark files.}
+\label{tab:results}
+\scriptsize
+\setlength{\tabcolsep}{2.8pt}
+\begin{tabularx}{\columnwidth}{@{}lrrXr@{}}
+\toprule
+\textbf{File} & \textbf{Size} & \textbf{Time (ms)} & \textbf{Verified Solution Output} & \textbf{Check} \\
+\midrule
+\texttt{cp01} & $10^3$ & $0.137$ & $d = 1233.009235$ & PASS \\
+\texttt{cp02} & $10^4$ & $1.631$ & $d = 13.86183400$ & PASS \\
+\texttt{cp03} & $10^5$ & $21.242$ & $d = 7.254473034$ & PASS \\
+\texttt{cp04} & $10^6$ & $275.325$ & $d = 1.551059466$ & PASS \\
+\texttt{cp05} & $10^6$ & $253.389$ & $d = 1.500000 \times 10^{-5}$ & PASS \\
+\texttt{cp06} & $10^6$ & $190.116$ & $d = 0.000000000$ (dup $(0,4)$) & PASS \\
+\texttt{cp07} & $10^5$ & $13.354$ & $d = 7.200000 \times 10^{-5}$ & PASS \\
+\texttt{cp08} & $10^5$ & $15.132$ & $d = 3154.000000$ (grid tie) & PASS \\
+\texttt{cp09} & $10^6$ & $259.630$ & $d = 2.000000 \times 10^{-6}$ (planted) & PASS \\
+\texttt{cp10} & $101$ & $0.011$ & $d = 6.118405150$ & PASS \\
+\midrule
+\texttt{im01} & $10^3$ & $0.010$ & $1{,}999$ digits: \texttt{88090955...40102771} & PASS \\
+\texttt{im02} & $10^4$ & $0.384$ & $20{,}000$ digits: \texttt{44260618...27515984} & PASS \\
+\texttt{im03} & $10^5$ & $14.287$ & $199{,}999$ digits: \texttt{69342021...38479275} & PASS \\
+\texttt{im04} & $10^6$ & $510.664$ & $2{,}000{,}000$ digits: \texttt{10738279...16974980} & PASS \\
+\texttt{im05} & $10^6{\times}10$ & $0.464$ & $1{,}000{,}010$ digits: \texttt{33743913...4328176} & PASS \\
+\texttt{im06} & $10^5$ & $13.667$ & $200{,}000$ digits: \texttt{63292955...01946768} & PASS \\
+\texttt{im07} & $99{,}999$ & $14.126$ & $199{,}998$ digits: \texttt{45000085...00000000} & PASS \\
+\texttt{im08} & $10^6$ & $8.717$ & $1{,}999{,}999$ digits: \texttt{10000000...00000000} & PASS \\
+\texttt{im09} & $1{\times}10^6$ & $0.003$ & $1$ digit: \texttt{0} & PASS \\
+\texttt{im10} & $101$ & $0.004$ & $202$ digits: \texttt{44725803...8159482} & PASS \\
+\bottomrule
+\end{tabularx}
+\vspace{-0.5em}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{figures/benchmark_perf.pdf}
+\caption{Empirical runtime scaling versus theoretical asymptotic curves across input sizes $n \in [101, 10^6]$ on log--log axes.}
+\label{fig:perf}
+\vspace{-0.7em}
+\end{figure}
+
+\textbf{Asymptotic Scaling \& Degeneracy Behavior:} As shown in Figure~\ref{fig:perf}(a), Closest Pair runtimes closely track the $\Theta(n \log n)$ curve: increasing $n$ tenfold from $10^5$ (\texttt{cp03}, $21.24\text{ ms}$) to $10^6$ (\texttt{cp04}, $275.33\text{ ms}$) yields a $12.96\times$ latency factor, consistent with the theoretical ratio $(10^6 \log_2 10^6)/(10^5 \log_2 10^5) \approx 12.00\times$. Notably, adversarial inputs do not degrade performance: duplicate coordinates in \texttt{cp06} collapse $\delta \to 0$ early, shrinking the central strip width to zero and reducing runtime to $190.12\text{ ms}$ ($31\%$ faster than uniform \texttt{cp04}). Similarly, all points lying on a single vertical line in \texttt{cp07} resolve in $13.35\text{ ms}$ because the $y$-sorted merge order immediately terminates inner strip scans via the $(y_j - y_i)^2 \ge \delta^2$ bound, while \texttt{cp09} accurately recovers the planted $2.0 \times 10^{-6}$ straddling pair across the bisector.
+
+\textbf{Sub-Quadratic Arithmetic Efficiency:} Figure~\ref{fig:perf}(b) demonstrates Karatsuba's sub-quadratic trajectory. Scaling operands from $10^5$ digits (\texttt{im03}, $14.29\text{ ms}$) to $10^6$ digits (\texttt{im04}, $510.66\text{ ms}$) produces a $35.74\times$ factor, closely matching $10^{\log_2 3} \approx 38.46\times$ (and vastly outperforming $\Theta(n^2)$ scaling, which would require $\sim 1{,}430\text{ ms}$). Edge-case optimizations yield dramatic speedups: \texttt{im05} ($10^6 \times 10$ digits) executes in $0.464\text{ ms}$ via unbalanced splitting directly into base-case schoolbook limbs; \texttt{im08} ($10^{999{,}999} \times 10^{999{,}999}$) completes in $8.72\text{ ms}$ because zero-valued limbs trigger immediate base-case returns ($l_b = 0$); and \texttt{im09} terminates in $0.003\text{ ms}$ upon detecting a zero operand.
+
+\section{Conclusion}
+We designed, implemented, and validated a complete divide-and-conquer benchmarking and visualization system for 2-D Closest Pair and Karatsuba Integer Multiplication. By combining self-contained C++17 data structures, deterministic cross-platform dataset generation, orthogonal oracle verification, and a streaming JSON Lines Electron--React workbench, the system achieves sub-second execution at million-element scale while preserving intuitive step-by-step pedagogical inspection for small instances.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}
